@@ -1,7 +1,9 @@
-import os
+ import os
 import json
 import threading
 import time
+import urllib.request
+import urllib.parse
 import speech_recognition as sr
 
 from kivy.app import App
@@ -10,7 +12,7 @@ from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.clock import mainthread
 
-# Integración nativa con las APIs del sistema operativo Android mediante Pyjnius
+# Integración nativa con Android mediante Pyjnius
 try:
     from jnius import autoclass
     PythonActivity = autoclass('org.kivy.android.PythonActivity')
@@ -23,6 +25,37 @@ try:
     IS_ANDROID = True
 except Exception:
     IS_ANDROID = False
+
+# Reemplaza esta cadena con tu clave de Google AI Studio (aistudio.google.com)
+GEMINI_API_KEY = "TU_CLAVE_DE_API_AQUI"
+
+
+class GeminiAI:
+    """Procesa cualquier consulta utilizando la API de Inteligencia Artificial."""
+
+    @staticmethod
+    def ask(prompt: str) -> str:
+        if GEMINI_API_KEY == "TU_CLAVE_DE_API_AQUI" or not GEMINI_API_KEY:
+            return "Por favor, configura tu clave de API de Gemini para habilitar mi inteligencia completa."
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {"Content-Type": "application/json"}
+        
+        payload = {
+            "contents": [{
+                "parts": [{"text": f"Eres un asistente de voz inteligente para Android. Responde de forma clara, directa y concisa en un máximo de 2 o 3 oraciones a lo siguiente: {prompt}"}]
+            }]
+        }
+
+        try:
+            data = json.dumps(payload).encode('utf-8')
+            req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                return result['candidates'][0]['content']['parts'][0]['text']
+        except Exception as e:
+            print(f"Error en API Gemini: {e}")
+            return "Ocurrió un problema de conexión al procesar tu solicitud con la IA."
 
 
 class AndroidBridge:
@@ -55,7 +88,7 @@ class AndroidBridge:
             self.tts.speak(text, TextToSpeech.QUEUE_FLUSH, None, None)
 
     def send_whatsapp(self, phone_number: str, text_message: str):
-        """Abre WhatsApp con número y mensaje listos."""
+        """Abre WhatsApp con número y mensaje prellenados."""
         if IS_ANDROID:
             url = f"https://api.whatsapp.com/send?phone={phone_number}&text={Uri.encode(text_message)}"
             intent = Intent(Intent.ACTION_VIEW)
@@ -71,7 +104,7 @@ class AndroidBridge:
             self.activity.startActivity(intent)
 
     def share_video(self, video_url: str):
-        """Despliega el menú para compartir videos."""
+        """Abre el menú para compartir enlaces de video."""
         if IS_ANDROID:
             intent = Intent(Intent.ACTION_SEND)
             intent.setType("text/plain")
@@ -80,7 +113,7 @@ class AndroidBridge:
             self.activity.startActivity(chooser)
 
     def make_call(self, phone_number: str):
-        """Abre el marcador telefónico con un número."""
+        """Abre el marcador telefónico."""
         if IS_ANDROID:
             intent = Intent(Intent.ACTION_DIAL)
             intent.setData(Uri.parse(f"tel:{phone_number}"))
@@ -99,14 +132,14 @@ class AndroidBridge:
             self.activity.startActivity(intent)
 
     def record_audio(self):
-        """Abre la grabadora de voz del teléfono."""
+        """Abre la grabadora de voz de Android."""
         if IS_ANDROID:
             intent = Intent(MediaStore.Audio.Media.RECORD_SOUND_ACTION)
             self.activity.startActivity(intent)
 
 
 class RecipeManager:
-    """Gestiona el almacenamiento y búsqueda de recetas en la memoria del celular."""
+    """Gestiona el almacenamiento y búsqueda de recetas en el almacenamiento interno."""
 
     def __init__(self, storage_path):
         self.file_path = os.path.join(storage_path, "recetas.json")
@@ -141,7 +174,7 @@ class VoiceAssistantApp(App):
 
         user_dir = self.user_data_dir if IS_ANDROID else "."
         self.recipe_manager = RecipeManager(user_dir)
-        self.last_recipe_found = None
+        self.last_ai_response = None
 
         layout = BoxLayout(orientation='vertical', padding=20, spacing=15)
         self.status_label = Label(
@@ -190,7 +223,7 @@ class VoiceAssistantApp(App):
 
                     if self.wake_word in text:
                         self.bridge.speak("¿En qué te puedo ayudar?")
-                        self.update_status("¡Palabra clave detectada! Escuchando tu orden...")
+                        self.update_status("¡Oye Siri detectado! Escuchando tu orden...")
 
                         order_audio = recognizer.listen(source, timeout=6, phrase_time_limit=8)
                         command = recognizer.recognize_google(order_audio, language="es-ES").lower()
@@ -203,64 +236,58 @@ class VoiceAssistantApp(App):
                     time.sleep(1)
 
     def process_command(self, command: str):
-        self.update_status(f"Orden recibida: '{command}'")
+        self.update_status(f"Procesando: '{command}'")
 
-        # 1. Comunicación
+        # 1. Comandos directos de Android
         if "whatsapp" in command or "mensaje" in command:
             self.bridge.speak("Abriendo WhatsApp...")
-            self.bridge.send_whatsapp("1234567890", "Mensaje enviado mediante el asistente de voz")
+            self.bridge.send_whatsapp("1234567890", "Mensaje enviado desde mi asistente de voz")
 
         elif "sms" in command:
-            self.bridge.speak("Abriendo mensajes SMS...")
-            self.bridge.send_sms("1234567890", "Mensaje de texto enviado por voz")
+            self.bridge.speak("Abriendo aplicación de SMS...")
+            self.bridge.send_sms("1234567890", "Mensaje SMS enviado por voz")
 
         elif "llamar" in command or "llama" in command:
-            self.bridge.speak("Abriendo el marcador para llamar...")
+            self.bridge.speak("Abriendo el marcador telefónico...")
             self.bridge.make_call("1234567890")
 
-        # 2. Multimedia / Cámara / Grabación
         elif "grabar video" in command:
-            self.bridge.speak("Abriendo la cámara para grabar video...")
+            self.bridge.speak("Abriendo la cámara en modo video...")
             self.bridge.record_video()
 
         elif "camara" in command or "cámara" in command or "foto" in command:
             self.bridge.speak("Abriendo la cámara...")
             self.bridge.open_camera()
 
-        elif "grabar audio" in command or "grabar voz" in command or "nota de voz" in command:
+        elif "grabar audio" in command or "nota de voz" in command:
             self.bridge.speak("Abriendo la grabadora de voz...")
             self.bridge.record_audio()
 
-        elif "compartir video" in command or "video" in command:
-            self.bridge.speak("Abriendo menú para compartir video...")
+        elif "compartir video" in command:
+            self.bridge.speak("Abriendo el menú para compartir...")
             self.bridge.share_video("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
 
-        # 3. Módulo de Recetas
         elif "guardar receta" in command:
-            if self.last_recipe_found:
+            if self.last_ai_response:
                 nombre = command.replace("guardar receta", "").strip() or "Receta de cocina"
-                msg = self.recipe_manager.save_recipe(nombre, self.last_recipe_found)
+                msg = self.recipe_manager.save_recipe(nombre, self.last_ai_response)
                 self.bridge.speak(msg)
             else:
-                self.bridge.speak("Primero busca una receta para poder guardarla.")
+                self.bridge.speak("Primero consulta o pide una receta para poder guardarla.")
 
         elif "mis recetas" in command or "ver recetas" in command:
             recetas_txt = self.recipe_manager.list_recipes()
             self.bridge.speak(recetas_txt)
 
-        elif "receta" in command:
-            plato = command.replace("buscar receta de", "").replace("receta de", "").strip()
-            receta_demo = f"Para preparar {plato}, necesitas tus ingredientes principales. Mezcla bien todo y cocina a fuego medio durante 20 minutos."
-            self.last_recipe_found = receta_demo
-            self.bridge.speak(receta_demo + " ¿Quieres guardar esta receta?")
-
-        # 4. Respuestas generales
-        elif "hola" in command or "cómo estás" in command:
-            self.bridge.speak("¡Hola! Soy tu asistente de voz en Android. ¿Qué deseas hacer hoy?")
-
+        # 2. Consultas abiertas procesadas con la Inteligencia Artificial
         else:
-            self.bridge.speak(f"Comando '{command}' recibido. Puedo llamar, abrir la cámara, enviar mensajes o guardar recetas.")
+            self.update_status("Consultando con la Inteligencia Artificial...")
+            ai_response = GeminiAI.ask(command)
+            self.last_ai_response = ai_response
+            self.bridge.speak(ai_response)
 
 
 if __name__ == '__main__':
     VoiceAssistantApp().run()
+     
+        
